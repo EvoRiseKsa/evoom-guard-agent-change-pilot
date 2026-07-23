@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.evb
+*.aca
+*.private.pem
+pilot-output/
+vendor/evo-guard.pyz

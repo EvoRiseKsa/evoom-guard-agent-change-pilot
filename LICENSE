@@ -1,0 +1,93 @@
+EVORISE SOURCE-AVAILABLE LICENSE
+Version 1.0 — 19 July 2026
+
+SPDX-License-Identifier: LicenseRef-EvoRise-Source-Available-1.0
+
+Copyright © 2026 Mana Alharbi. All rights reserved.
+Licensor: Mana Alharbi.
+Commercial licensing is administered by EvoRise Company.
+
+This Software is source-available, not open source.
+
+1. Scope
+
+"Software" means the first-party source code, documentation, examples, and
+other material distributed with this License. It excludes material carrying a
+different notice or owned by a third party. "You" means the individual or
+organization exercising rights under this License.
+
+2. Limited Free Grant
+
+Subject to this License, the Licensor grants You a limited, non-exclusive,
+non-transferable, non-sublicensable right to access, copy, run, and make
+internal modifications to the Software solely for:
+
+(a) inspection, personal study, non-commercial education, or non-commercial
+    research;
+(b) good-faith security testing of systems, accounts, repositories, and data
+    that You own or are expressly authorized to test; or
+(c) one internal, non-production evaluation of up to thirty (30) days per
+    organization and major version.
+
+Evaluation use must not process customer, production, or third-party
+confidential data without written permission from the Licensor.
+
+3. Uses Requiring a Commercial License
+
+Except under a separate written commercial agreement, You may not:
+
+(a) use the Software for commercial or production purposes;
+(b) use or rely on the Software or its output as a required CI/CD, merge,
+    release, deployment, security, audit, compliance, or business-decision
+    gate;
+(c) distribute, sublicense, sell, resell, embed, or otherwise make the
+    Software or a modified version available to another party;
+(d) host, provide, or make the Software or its functionality available as a
+    SaaS, managed service, service bureau, API, or customer deliverable; or
+(e) use the Software or a derivative work to develop or offer a competing
+    product or service.
+
+These restrictions do not prohibit independently developed technology that
+does not use the Software or a derivative work. They also do not prohibit a
+code-hosting-platform copy or fork created solely to exercise the permitted
+uses or to submit a proposed contribution, provided all notices are retained
+and the copy remains subject to this License.
+
+4. Ownership and Notices
+
+The Software is licensed, not sold. The Licensor retains all rights not
+expressly granted. You must retain copyright, license, and third-party notices
+in every permitted copy or internal modification.
+
+No trademark license is granted. You may use the Software's names only for
+truthful reference to the unmodified Software. You may not use EvoRise, EvoOM
+Guard, or associated logos to suggest endorsement or as branding for a fork,
+product, or service without written permission.
+
+5. Third-Party Material and Contributions
+
+Third-party material remains subject to its own notices and licenses. Do not
+submit a contribution unless You have the authority to grant the needed
+contribution rights.
+
+6. Termination
+
+This License terminates upon a material breach. On termination, You must stop
+all unlicensed use of the Software. The Licensor may grant a written
+reinstatement after a breach has been cured.
+
+7. Warranty and Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE SOFTWARE IS PROVIDED
+"AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+THE LICENSOR AND CONTRIBUTORS ARE NOT LIABLE FOR DAMAGES ARISING FROM THE
+SOFTWARE OR THIS LICENSE.
+
+8. Commercial Licensing
+
+Commercial, production, redistribution, embedding, hosted, managed-service,
+and enterprise use require a separate written agreement. For commercial
+licensing, contact EvoRise Company at <https://evoriseksa.com> or
+<evoriseksa@icloud.com>.
+
+END OF TERMS

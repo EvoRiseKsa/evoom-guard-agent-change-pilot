@@ -1,0 +1,28 @@
+{
+  "blackbox": true,
+  "blackbox_only": true,
+  "require_report_integrity": "external_process_isolated",
+  "isolation": "docker",
+  "require_candidate_isolation": "docker",
+  "docker_network": "none",
+  "docker_image": "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
+  "verifier_pack": "security/evoguard-pack",
+  "expect_verifier_pack_sha256": "e6823b20e38f375a9459e49c3fd4f68f0ca96697c654537e381b0320a93016d8",
+  "protected": [
+    ".evoguard.json",
+    ".github/CODEOWNERS",
+    ".github/workflows/agent-change-pilot.yml",
+    ".github/workflows/git-pin-probe.yml",
+    "pyproject.toml",
+    "security/agent-authorization-public.pem",
+    "security/evoguard-pack/pack.json",
+    "security/evoguard-pack/test_protocol.py",
+    "security/finalizer-public.pem",
+    "tools/create_authorization_inputs.py",
+    "tools/create_proposal.py",
+    "vendor/ORIGIN.json",
+    "vendor/SHA256SUMS"
+  ],
+  "policy_id": "agent-change-admission-pilot",
+  "policy_version": "1"
+}

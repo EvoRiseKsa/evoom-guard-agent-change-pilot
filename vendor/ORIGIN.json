@@ -1,0 +1,14 @@
+{
+  "artifact": "evo-guard.pyz",
+  "artifact_sha256": "fcb9724de5e588e1664da5a108d077388bfaba1860d794d14142a2275f349842",
+  "builds_compared": 3,
+  "candidate_status": "unreleased-feature-commit",
+  "core_commit": "31a9258277d2650aba24a1f9f009c25db1c4bbf0",
+  "core_pull_request": "https://github.com/EvoRiseKsa/EvoOM-Guard-m/pull/147",
+  "core_repository": "EvoRiseKsa/EvoOM-Guard-m",
+  "distribution": "pilot-repository-release-asset",
+  "embedded_reported_version": "4.2.0",
+  "format": "EVOGUARD_PILOT_ARTIFACT_ORIGIN_V1",
+  "release_asset_url": "https://github.com/EvoRiseKsa/evoom-guard-agent-change-pilot/releases/download/core-31a9258/evo-guard.pyz",
+  "size": 1581984
+}

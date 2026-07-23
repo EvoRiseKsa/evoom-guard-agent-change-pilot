@@ -1,0 +1,73 @@
+# EvoGuard Agent Change Admission Pilot
+
+This public repository is a controlled consumer pilot for the unreleased
+Agent Change Admission implementation in
+[`EvoRiseKsa/EvoOM-Guard-m`](https://github.com/EvoRiseKsa/EvoOM-Guard-m/pull/147).
+It is not the core product, a production deployment, an independent audit, or
+a required merge gate.
+
+The pilot tests one narrow decision: whether an exact PR change to
+`calc/ops.py` matches a separately signed authorization, independently
+re-derived raw Git facts, an isolated Guard verdict, and a distinct Trusted
+Finalizer `ALLOW`.
+
+## Evidence boundary
+
+- The selected core commit is
+  `31a9258277d2650aba24a1f9f009c25db1c4bbf0`.
+- The externally retained experimental zipapp SHA-256 is
+  `fcb9724de5e588e1664da5a108d077388bfaba1860d794d14142a2275f349842`.
+- Three independent builds produced identical bytes. The artifact still
+  reports `evo-guard 4.2.0` because the feature has not been released or had
+  its version bumped. It must not be described as a v4.3 release.
+- The binary is a pilot-repository release asset, not a file in the candidate
+  Git tree. Its hard-coded digest is the executable trust root; a missing or
+  replaced asset fails closed.
+- `EvoRiseKsa` and `MANA-awam` are controlled by the same owner. Their
+  separation exercises GitHub permissions and artifact flow, but is not
+  independent validation.
+
+## Live workflow
+
+The manual `EvoGuard Agent Change Pilot` workflow is installed only on the
+default branch. It uses four boundaries:
+
+1. protected metadata selects one exact open PR and creates an attempt-bound
+   pending Check Run;
+2. an unprivileged job executes the exact candidate with no secret or write
+   permission and uploads claims only;
+3. the `evoguard-agent-authorization` Environment exposes a distinct
+   authorization key only after raw Git is re-derived and the fixed
+   `calc/ops.py` scope is checked; and
+4. the `evoguard-agent-finalizer` Environment exposes a different finalizer
+   key, re-fetches Git objects, derives both binding families again, verifies
+   Guard evidence, seals the admission, verifies it offline, and publishes
+   retained evidence.
+
+The protected Git executable is `/usr/bin/git`; its SHA-256 is stored as the
+repository variable `EVOGUARD_GIT_EXECUTABLE_SHA256`. The no-secret
+`EvoGuard Git Pin Probe` workflow is used to observe the current
+`ubuntu-24.04` executable before enabling a pilot run. A runner-image change
+fails closed until the pin is reviewed and updated.
+
+## Scope and limits
+
+The authorization permits exactly one modified file, `calc/ops.py`, no
+deletions, at most one touched path, and at most 65,536 serialized candidate
+bytes. Tests, workflows, configuration, signing keys, verifier packs, and
+artifact-origin records are not in scope.
+
+Docker with no network is defense in depth for this controlled sample. This
+pilot does not establish that GitHub-hosted Docker is a sufficient isolation
+boundary for arbitrary hostile code. It also does not prove patch correctness
+beyond the declared verifier pack.
+
+## Status
+
+Bootstrap files are reviewed first. A result is claimed only after a real PR
+from `MANA-awam` has completed both protected Environment approvals and the
+signed `.evb` has been downloaded and verified independently.
+
+## License
+
+This repository is source-available, not open source. See [`LICENSE`](LICENSE).

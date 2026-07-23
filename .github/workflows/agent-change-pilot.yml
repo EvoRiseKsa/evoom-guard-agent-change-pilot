@@ -1,0 +1,904 @@
+name: EvoGuard Agent Change Pilot
+run-name: "Agent Change admission for PR #${{ inputs.pr_number }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Open MANA-awam fork PR to evaluate"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: evoguard-agent-change-pilot-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+env:
+  GUARD_ARTIFACT_SHA256: fcb9724de5e588e1664da5a108d077388bfaba1860d794d14142a2275f349842
+  GUARD_ARTIFACT_URL: https://github.com/EvoRiseKsa/evoom-guard-agent-change-pilot/releases/download/core-31a9258/evo-guard.pyz
+
+jobs:
+  metadata:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      checks: write
+      contents: read
+      pull-requests: read
+    outputs:
+      repository: ${{ steps.pr.outputs.repository }}
+      repository_id: ${{ steps.pr.outputs.repository_id }}
+      head_repository: ${{ steps.pr.outputs.head_repository }}
+      head_repository_id: ${{ steps.pr.outputs.head_repository_id }}
+      pr_number: ${{ steps.pr.outputs.pr_number }}
+      base_sha: ${{ steps.pr.outputs.base_sha }}
+      head_sha: ${{ steps.pr.outputs.head_sha }}
+      base_tree_sha: ${{ steps.pr.outputs.base_tree_sha }}
+      head_tree_sha: ${{ steps.pr.outputs.head_tree_sha }}
+      check_run_id: ${{ steps.pending.outputs.check_run_id }}
+    steps:
+      - id: pr
+        name: Select one exact same-owner fork PR
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          retries: 3
+          script: |
+            const raw = process.env.PR_NUMBER || '';
+            if (!/^[1-9][0-9]*$/.test(raw)) {
+              throw new Error('pr_number must be a positive decimal integer');
+            }
+            const { owner, repo } = context.repo;
+            const repository = `${owner}/${repo}`;
+            if (repository !== 'EvoRiseKsa/evoom-guard-agent-change-pilot') {
+              throw new Error('workflow is bound to the controlled pilot repository');
+            }
+            if (context.ref !== `refs/heads/${context.payload.repository.default_branch}`) {
+              throw new Error('workflow must execute from the default branch');
+            }
+            const pr = (await github.rest.pulls.get({
+              owner, repo, pull_number: Number(raw),
+            })).data;
+            if (pr.state !== 'open' || pr.base.ref !== context.payload.repository.default_branch) {
+              throw new Error('pilot accepts one open PR to the default branch');
+            }
+            if (pr.base.sha !== context.sha) {
+              throw new Error('PR base must equal the reviewed workflow commit');
+            }
+            if (!pr.head.repo ||
+                pr.head.repo.full_name !== 'MANA-awam/evoom-guard-agent-change-pilot' ||
+                pr.head.repo.private ||
+                !/^pilot\/round-[1-9][0-9]*$/.test(pr.head.ref)) {
+              throw new Error('pilot accepts only a public MANA-awam pilot/round-N fork branch');
+            }
+            for (const value of [pr.base.sha, pr.head.sha]) {
+              if (!/^[0-9a-f]{40,64}$/.test(value)) {
+                throw new Error('GitHub returned an invalid commit identity');
+              }
+            }
+            const [baseCommit, headCommit] = await Promise.all([
+              github.rest.git.getCommit({ owner, repo, commit_sha: pr.base.sha }),
+              github.rest.git.getCommit({
+                owner: pr.head.repo.owner.login,
+                repo: pr.head.repo.name,
+                commit_sha: pr.head.sha,
+              }),
+            ]);
+            const values = {
+              repository,
+              repository_id: String(context.payload.repository.id),
+              head_repository: pr.head.repo.full_name,
+              head_repository_id: String(pr.head.repo.id),
+              pr_number: String(Number(raw)),
+              base_sha: pr.base.sha,
+              head_sha: pr.head.sha,
+              base_tree_sha: baseCommit.data.tree.sha,
+              head_tree_sha: headCommit.data.tree.sha,
+            };
+            for (const field of ['base_tree_sha', 'head_tree_sha']) {
+              if (!/^[0-9a-f]{40,64}$/.test(values[field])) {
+                throw new Error(`GitHub returned an invalid ${field}`);
+              }
+            }
+            for (const [key, value] of Object.entries(values)) {
+              core.setOutput(key, value);
+            }
+
+      - id: pending
+        name: Create an attempt-bound pending pilot check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        with:
+          script: |
+            const headSha = process.env.HEAD_SHA || '';
+            if (!/^[0-9a-f]{40,64}$/.test(headSha)) {
+              throw new Error('metadata did not produce a valid head SHA');
+            }
+            const externalId = `evoguard-agent-change-pilot:${context.runId}:${process.env.GITHUB_RUN_ATTEMPT}`;
+            const created = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: headSha,
+              name: 'EvoGuard Agent Change Pilot',
+              external_id: externalId,
+              status: 'in_progress',
+              started_at: new Date().toISOString(),
+              output: {
+                title: 'Agent Change admission pending',
+                summary: 'This experimental same-owner check is bound to one workflow attempt.',
+              },
+            });
+            core.setOutput('check_run_id', String(created.data.id));
+
+      - name: Write the protected control record
+        shell: bash
+        env:
+          REPOSITORY: ${{ steps.pr.outputs.repository }}
+          REPOSITORY_ID: ${{ steps.pr.outputs.repository_id }}
+          HEAD_REPOSITORY: ${{ steps.pr.outputs.head_repository }}
+          HEAD_REPOSITORY_ID: ${{ steps.pr.outputs.head_repository_id }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          BASE_TREE_SHA: ${{ steps.pr.outputs.base_tree_sha }}
+          HEAD_TREE_SHA: ${{ steps.pr.outputs.head_tree_sha }}
+          CHECK_RUN_ID: ${{ steps.pending.outputs.check_run_id }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/control.json" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          git_sha = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+          values = {
+              "base_sha": os.environ["BASE_SHA"],
+              "base_tree_sha": os.environ["BASE_TREE_SHA"],
+              "head_sha": os.environ["HEAD_SHA"],
+              "head_tree_sha": os.environ["HEAD_TREE_SHA"],
+          }
+          if any(git_sha.fullmatch(value) is None for value in values.values()):
+              raise SystemExit("protected metadata contains an invalid Git identity")
+          record = {
+              "base_sha": values["base_sha"],
+              "base_tree_sha": values["base_tree_sha"],
+              "check_run_id": int(os.environ["CHECK_RUN_ID"]),
+              "format": "EVOGUARD_AGENT_CHANGE_PILOT_CONTROL_V1",
+              "head_repository": os.environ["HEAD_REPOSITORY"],
+              "head_repository_id": os.environ["HEAD_REPOSITORY_ID"],
+              "head_sha": values["head_sha"],
+              "head_tree_sha": values["head_tree_sha"],
+              "pull_request_number": int(os.environ["PR_NUMBER"]),
+              "repository": os.environ["REPOSITORY"],
+              "repository_id": os.environ["REPOSITORY_ID"],
+              "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+          }
+          with open(sys.argv[1], "x", encoding="utf-8", newline="\n") as handle:
+              json.dump(record, handle, sort_keys=True, separators=(",", ":"))
+              handle.write("\n")
+          PY
+
+      - name: Retain the immutable control record
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-change-control-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/control.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  reverify:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions: {}
+    steps:
+      - name: Fetch the exact base and candidate without credentials
+        shell: bash
+        env:
+          REPOSITORY: ${{ needs.metadata.outputs.repository }}
+          HEAD_REPOSITORY: ${{ needs.metadata.outputs.head_repository }}
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$HEAD_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          for value in "$BASE_SHA" "$HEAD_SHA"; do
+            [[ "$value" =~ ^[0-9a-f]{40,64}$ ]]
+          done
+          for item in "base:$REPOSITORY:$BASE_SHA" "candidate:$HEAD_REPOSITORY:$HEAD_SHA"; do
+            IFS=: read -r directory repository revision <<<"$item"
+            git init --quiet "$GITHUB_WORKSPACE/$directory"
+            git -C "$GITHUB_WORKSPACE/$directory" remote add origin "https://github.com/$repository.git"
+            git -C "$GITHUB_WORKSPACE/$directory" fetch --quiet --depth=1 --no-tags origin "$revision"
+            git -C "$GITHUB_WORKSPACE/$directory" checkout --quiet --detach FETCH_HEAD
+            test "$(git -C "$GITHUB_WORKSPACE/$directory" rev-parse HEAD)" = "$revision"
+            git -C "$GITHUB_WORKSPACE/$directory" remote remove origin
+          done
+
+      - name: Verify the exact candidate Guard artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 10 --max-time 120 --retry 2 --retry-delay 1 \
+            --output "$RUNNER_TEMP/evo-guard.pyz" "$GUARD_ARTIFACT_URL"
+          test -f "$RUNNER_TEMP/evo-guard.pyz"
+          test ! -L "$RUNNER_TEMP/evo-guard.pyz"
+          actual="$(sha256sum "$RUNNER_TEMP/evo-guard.pyz" | awk '{print $1}')"
+          test "$actual" = "$GUARD_ARTIFACT_SHA256"
+          chmod 0755 "$RUNNER_TEMP/evo-guard.pyz"
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the hash-locked verifier runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/requirements.txt" <<'PY'
+          from pathlib import Path
+          import sys
+
+          Path(sys.argv[1]).write_text(
+              """colorama==0.4.6 \
+              --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+          iniconfig==2.3.0 \
+              --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
+          packaging==26.2 \
+              --hash=sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e
+          pluggy==1.6.0 \
+              --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+          pygments==2.20.0 \
+              --hash=sha256:81a9e26dd42fd28a23a2d169d86d7ac03b46e2f8b59ed4698fb4785f946d0176
+          pytest==9.0.3 \
+              --hash=sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9
+          """,
+              encoding="utf-8",
+          )
+          PY
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+      - name: Refuse a weakened trusted-base policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$GITHUB_WORKSPACE/base/.evoguard.json" <<'PY'
+          import json
+          import re
+          import sys
+
+          policy = json.load(open(sys.argv[1], encoding="utf-8"))
+          required = {
+              "blackbox": True,
+              "blackbox_only": True,
+              "require_report_integrity": "external_process_isolated",
+              "isolation": "docker",
+              "require_candidate_isolation": "docker",
+              "docker_network": "none",
+              "trust_setup_on_host": False,
+              "expect_verifier_pack_sha256":
+                  "e6823b20e38f375a9459e49c3fd4f68f0ca96697c654537e381b0320a93016d8",
+          }
+          for key, expected in required.items():
+              if policy.get(key, False) != expected:
+                  raise SystemExit(f"trusted policy requires {key}={expected!r}")
+          image = policy.get("docker_image")
+          if not isinstance(image, str) or re.search(r"@sha256:[0-9a-f]{64}\Z", image) is None:
+              raise SystemExit("trusted policy requires an immutable Docker image")
+          PY
+
+      - id: guard
+        name: Re-verify the exact candidate without secrets
+        shell: bash
+        env:
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          BASE_TREE_SHA: ${{ needs.metadata.outputs.base_tree_sha }}
+          HEAD_TREE_SHA: ${{ needs.metadata.outputs.head_tree_sha }}
+        run: |
+          set +e
+          python -I "$RUNNER_TEMP/evo-guard.pyz" guard \
+            --base "$GITHUB_WORKSPACE/base" \
+            --head "$GITHUB_WORKSPACE/candidate" \
+            --config "$GITHUB_WORKSPACE/base/.evoguard.json" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --json "$RUNNER_TEMP/verdict.json" \
+            --report "$RUNNER_TEMP/reverify.md"
+          code=$?
+          set -e
+          test -f "$RUNNER_TEMP/verdict.json"
+          if test "$code" -eq 0; then
+            outcome=PASS
+          else
+            outcome=FAIL
+          fi
+          printf 'exit_code=%s\n' "$code" >> "$GITHUB_OUTPUT"
+          printf 'outcome=%s\n' "$outcome" >> "$GITHUB_OUTPUT"
+
+      - name: Derive both untrusted evidence families
+        shell: bash
+        env:
+          REPOSITORY: ${{ needs.metadata.outputs.repository }}
+          REPOSITORY_ID: ${{ needs.metadata.outputs.repository_id }}
+          PR_NUMBER: ${{ needs.metadata.outputs.pr_number }}
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          BASE_TREE_SHA: ${{ needs.metadata.outputs.base_tree_sha }}
+          HEAD_TREE_SHA: ${{ needs.metadata.outputs.head_tree_sha }}
+          GUARD_OUTCOME: ${{ steps.guard.outputs.outcome }}
+        run: |
+          set -euo pipefail
+          git_executable="$(readlink -f "$(command -v git)")"
+          git_sha256="$(sha256sum "$git_executable" | awk '{print $1}')"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" derive-finalizer-bindings \
+            --base-repo "$GITHUB_WORKSPACE/base" \
+            --head-repo "$GITHUB_WORKSPACE/candidate" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --repository "$REPOSITORY" \
+            --repository-id "$REPOSITORY_ID" \
+            --pr-number "$PR_NUMBER" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --guard-artifact-sha "$GUARD_ARTIFACT_SHA256" \
+            --out "$RUNNER_TEMP/finalizer-bindings.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" verify-finalizer-bindings \
+            "$RUNNER_TEMP/verdict.json" \
+            --bindings "$RUNNER_TEMP/finalizer-bindings.json" \
+            --source-out "$RUNNER_TEMP/source.json" \
+            --context-out "$RUNNER_TEMP/context.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" finalizer-handoff \
+            "$RUNNER_TEMP/verdict.json" \
+            --source "$RUNNER_TEMP/source.json" \
+            --context "$RUNNER_TEMP/context.json" \
+            --out "$RUNNER_TEMP/handoff.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" derive-agent-change-bindings \
+            --base-repo "$GITHUB_WORKSPACE/base" \
+            --head-repo "$GITHUB_WORKSPACE/candidate" \
+            --git-executable "$git_executable" \
+            --git-executable-sha256 "$git_sha256" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --out "$RUNNER_TEMP/agent-bindings-producer.json"
+          python "$GITHUB_WORKSPACE/base/tools/create_proposal.py" \
+            --bindings "$RUNNER_TEMP/agent-bindings-producer.json" \
+            --verdict "$RUNNER_TEMP/verdict.json" \
+            --repository "$REPOSITORY" \
+            --pr-number "$PR_NUMBER" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --guard-outcome "$GUARD_OUTCOME" \
+            --out "$RUNNER_TEMP/proposal.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" validate-agent-change-proposal \
+            "$RUNNER_TEMP/proposal.json"
+
+      - name: Upload claims without granting them authority
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-change-untrusted-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/agent-bindings-producer.json
+            ${{ runner.temp }}/context.json
+            ${{ runner.temp }}/finalizer-bindings.json
+            ${{ runner.temp }}/handoff.json
+            ${{ runner.temp }}/proposal.json
+            ${{ runner.temp }}/reverify.md
+            ${{ runner.temp }}/source.json
+            ${{ runner.temp }}/verdict.json
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  authorize:
+    needs: [metadata, reverify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    environment: evoguard-agent-authorization
+    steps:
+      - name: Checkout only the reviewed workflow trust root
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          path: trust
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-locked Ed25519 support
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/requirements.txt" <<'PY'
+          from pathlib import Path
+          import sys
+
+          Path(sys.argv[1]).write_text(
+              """cryptography==46.0.7 \
+              --hash=sha256:420b1e4109cc95f0e5700eed79908cef9268265c773d3a66f7af1eef53d409ef
+          cffi==2.1.0 \
+              --hash=sha256:1e9f50d192a3e525b15a75ab5114e442d83d657b7ec29182a991bc9a88fd3a66
+          pycparser==3.0 \
+              --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+          """,
+              encoding="utf-8",
+          )
+          PY
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+      - name: Download untrusted claims from this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-change-untrusted-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/untrusted
+
+      - name: Verify the protected executable roots
+        shell: bash
+        env:
+          GIT_EXECUTABLE_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 10 --max-time 120 --retry 2 --retry-delay 1 \
+            --output "$RUNNER_TEMP/evo-guard.pyz" "$GUARD_ARTIFACT_URL"
+          test "$(sha256sum "$RUNNER_TEMP/evo-guard.pyz" | awk '{print $1}')" = "$GUARD_ARTIFACT_SHA256"
+          chmod 0755 "$RUNNER_TEMP/evo-guard.pyz"
+          [[ "$GIT_EXECUTABLE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum /usr/bin/git | awk '{print $1}')" = "$GIT_EXECUTABLE_SHA256"
+
+      - name: Re-fetch immutable Git objects without a candidate checkout
+        shell: bash
+        env:
+          REPOSITORY: ${{ needs.metadata.outputs.repository }}
+          HEAD_REPOSITORY: ${{ needs.metadata.outputs.head_repository }}
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$HEAD_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          for item in "base:$REPOSITORY:$BASE_SHA" "head:$HEAD_REPOSITORY:$HEAD_SHA"; do
+            IFS=: read -r name repository revision <<<"$item"
+            directory="$RUNNER_TEMP/$name.git"
+            git init --bare --quiet "$directory"
+            git -C "$directory" remote add origin "https://github.com/$repository.git"
+            git -C "$directory" fetch --quiet --depth=1 --no-tags origin "$revision"
+            test "$(git -C "$directory" rev-parse FETCH_HEAD)" = "$revision"
+            git -C "$directory" remote remove origin
+          done
+
+      - name: Derive fixed authorization inputs before the key is exposed
+        shell: bash
+        env:
+          GIT_EXECUTABLE_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+          REPOSITORY: ${{ needs.metadata.outputs.repository }}
+          REPOSITORY_ID: ${{ needs.metadata.outputs.repository_id }}
+          PR_NUMBER: ${{ needs.metadata.outputs.pr_number }}
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          BASE_TREE_SHA: ${{ needs.metadata.outputs.base_tree_sha }}
+          HEAD_TREE_SHA: ${{ needs.metadata.outputs.head_tree_sha }}
+        run: |
+          set -euo pipefail
+          python -I "$RUNNER_TEMP/evo-guard.pyz" derive-agent-change-bindings \
+            --base-repo "$RUNNER_TEMP/base.git" \
+            --head-repo "$RUNNER_TEMP/head.git" \
+            --base-bare \
+            --head-bare \
+            --git-executable /usr/bin/git \
+            --git-executable-sha256 "$GIT_EXECUTABLE_SHA256" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --out "$RUNNER_TEMP/authorization-bindings.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" validate-agent-change-proposal \
+            "$RUNNER_TEMP/untrusted/proposal.json"
+          python "$GITHUB_WORKSPACE/trust/tools/create_authorization_inputs.py" \
+            --bindings "$RUNNER_TEMP/authorization-bindings.json" \
+            --repository "$REPOSITORY" \
+            --repository-id "$REPOSITORY_ID" \
+            --pr-number "$PR_NUMBER" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --source-out "$RUNNER_TEMP/authorization-source.json" \
+            --scope-out "$RUNNER_TEMP/authorization-scope.json" \
+            --required-out "$RUNNER_TEMP/authorization-required.json"
+
+      - name: Revalidate the live PR immediately before authorization
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.metadata.outputs.pr_number }}
+          EXPECTED_BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          EXPECTED_HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          EXPECTED_BASE_TREE_SHA: ${{ needs.metadata.outputs.base_tree_sha }}
+          EXPECTED_HEAD_TREE_SHA: ${{ needs.metadata.outputs.head_tree_sha }}
+          EXPECTED_HEAD_REPOSITORY: ${{ needs.metadata.outputs.head_repository }}
+        with:
+          retries: 3
+          script: |
+            const pr = (await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            })).data;
+            if (pr.state !== 'open' ||
+                pr.base.ref !== context.payload.repository.default_branch ||
+                pr.base.sha !== process.env.EXPECTED_BASE_SHA ||
+                pr.head.sha !== process.env.EXPECTED_HEAD_SHA ||
+                !pr.head.repo ||
+                pr.head.repo.full_name !== process.env.EXPECTED_HEAD_REPOSITORY) {
+              throw new Error('PR changed before authorization');
+            }
+            const [baseCommit, headCommit] = await Promise.all([
+              github.rest.git.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: pr.base.sha,
+              }),
+              github.rest.git.getCommit({
+                owner: pr.head.repo.owner.login,
+                repo: pr.head.repo.name,
+                commit_sha: pr.head.sha,
+              }),
+            ]);
+            if (baseCommit.data.tree.sha !== process.env.EXPECTED_BASE_TREE_SHA ||
+                headCommit.data.tree.sha !== process.env.EXPECTED_HEAD_TREE_SHA) {
+              throw new Error('PR tree changed before authorization');
+            }
+
+      - name: Sign the exact fixed-scope authorization
+        shell: bash
+        env:
+          AUTHORIZATION_KEY: ${{ secrets.EVOGUARD_AGENT_AUTHORIZATION_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$AUTHORIZATION_KEY"
+          umask 077
+          key="$RUNNER_TEMP/authorization.private.pem"
+          printf '%s' "$AUTHORIZATION_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          python -I "$RUNNER_TEMP/evo-guard.pyz" seal-agent-change-authorization \
+            --source "$RUNNER_TEMP/authorization-source.json" \
+            --scope "$RUNNER_TEMP/authorization-scope.json" \
+            --required "$RUNNER_TEMP/authorization-required.json" \
+            --sign-key "$key" \
+            --out "$RUNNER_TEMP/authorization.aca"
+
+      - name: Retain the signed authorization
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-change-authorization-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/authorization-bindings.json
+            ${{ runner.temp }}/authorization-required.json
+            ${{ runner.temp }}/authorization-scope.json
+            ${{ runner.temp }}/authorization-source.json
+            ${{ runner.temp }}/authorization.aca
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
+
+  finalize:
+    needs: [metadata, reverify, authorize]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    environment: evoguard-agent-finalizer
+    steps:
+      - name: Checkout only the reviewed workflow trust root
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          path: trust
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install hash-locked Ed25519 support
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - "$RUNNER_TEMP/requirements.txt" <<'PY'
+          from pathlib import Path
+          import sys
+
+          Path(sys.argv[1]).write_text(
+              """cryptography==46.0.7 \
+              --hash=sha256:420b1e4109cc95f0e5700eed79908cef9268265c773d3a66f7af1eef53d409ef
+          cffi==2.1.0 \
+              --hash=sha256:1e9f50d192a3e525b15a75ab5114e442d83d657b7ec29182a991bc9a88fd3a66
+          pycparser==3.0 \
+              --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+          """,
+              encoding="utf-8",
+          )
+          PY
+          python -m pip install --disable-pip-version-check --only-binary=:all: \
+            --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+      - name: Download the untrusted and authorized material sets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: agent-change-*
+          path: ${{ runner.temp }}/downloads
+
+      - name: Verify the protected executable roots
+        shell: bash
+        env:
+          GIT_EXECUTABLE_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+        run: |
+          set -euo pipefail
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --connect-timeout 10 --max-time 120 --retry 2 --retry-delay 1 \
+            --output "$RUNNER_TEMP/evo-guard.pyz" "$GUARD_ARTIFACT_URL"
+          test "$(sha256sum "$RUNNER_TEMP/evo-guard.pyz" | awk '{print $1}')" = "$GUARD_ARTIFACT_SHA256"
+          chmod 0755 "$RUNNER_TEMP/evo-guard.pyz"
+          [[ "$GIT_EXECUTABLE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum /usr/bin/git | awk '{print $1}')" = "$GIT_EXECUTABLE_SHA256"
+
+      - name: Re-fetch immutable Git objects without a candidate checkout
+        shell: bash
+        env:
+          REPOSITORY: ${{ needs.metadata.outputs.repository }}
+          HEAD_REPOSITORY: ${{ needs.metadata.outputs.head_repository }}
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$HEAD_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          for item in "base:$REPOSITORY:$BASE_SHA" "head:$HEAD_REPOSITORY:$HEAD_SHA"; do
+            IFS=: read -r name repository revision <<<"$item"
+            directory="$RUNNER_TEMP/$name.git"
+            git init --bare --quiet "$directory"
+            git -C "$directory" remote add origin "https://github.com/$repository.git"
+            git -C "$directory" fetch --quiet --depth=1 --no-tags origin "$revision"
+            test "$(git -C "$directory" rev-parse FETCH_HEAD)" = "$revision"
+            git -C "$directory" remote remove origin
+          done
+
+      - name: Independently derive and compare every binding
+        shell: bash
+        env:
+          GIT_EXECUTABLE_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+          REPOSITORY: ${{ needs.metadata.outputs.repository }}
+          REPOSITORY_ID: ${{ needs.metadata.outputs.repository_id }}
+          PR_NUMBER: ${{ needs.metadata.outputs.pr_number }}
+          BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          BASE_TREE_SHA: ${{ needs.metadata.outputs.base_tree_sha }}
+          HEAD_TREE_SHA: ${{ needs.metadata.outputs.head_tree_sha }}
+        run: |
+          set -euo pipefail
+          untrusted="$RUNNER_TEMP/downloads/agent-change-untrusted-$GITHUB_RUN_ATTEMPT"
+          authorization="$RUNNER_TEMP/downloads/agent-change-authorization-$GITHUB_RUN_ATTEMPT"
+          test -d "$untrusted"
+          test -d "$authorization"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" derive-agent-change-bindings \
+            --base-repo "$RUNNER_TEMP/base.git" \
+            --head-repo "$RUNNER_TEMP/head.git" \
+            --base-bare \
+            --head-bare \
+            --git-executable /usr/bin/git \
+            --git-executable-sha256 "$GIT_EXECUTABLE_SHA256" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --out "$RUNNER_TEMP/agent-bindings-finalizer.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" derive-finalizer-bindings \
+            --base-repo "$RUNNER_TEMP/base.git" \
+            --head-repo "$RUNNER_TEMP/head.git" \
+            --base-bare \
+            --head-bare \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --base-tree-sha "$BASE_TREE_SHA" \
+            --head-tree-sha "$HEAD_TREE_SHA" \
+            --repository "$REPOSITORY" \
+            --repository-id "$REPOSITORY_ID" \
+            --pr-number "$PR_NUMBER" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --guard-artifact-sha "$GUARD_ARTIFACT_SHA256" \
+            --out "$RUNNER_TEMP/finalizer-bindings.json"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" verify-finalizer-bindings \
+            "$untrusted/verdict.json" \
+            --bindings "$RUNNER_TEMP/finalizer-bindings.json" \
+            --source-out "$RUNNER_TEMP/expected-source.json" \
+            --context-out "$RUNNER_TEMP/expected-context.json"
+
+      - name: Revalidate the live PR immediately before finalization
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ needs.metadata.outputs.pr_number }}
+          EXPECTED_BASE_SHA: ${{ needs.metadata.outputs.base_sha }}
+          EXPECTED_HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          EXPECTED_BASE_TREE_SHA: ${{ needs.metadata.outputs.base_tree_sha }}
+          EXPECTED_HEAD_TREE_SHA: ${{ needs.metadata.outputs.head_tree_sha }}
+          EXPECTED_HEAD_REPOSITORY: ${{ needs.metadata.outputs.head_repository }}
+        with:
+          retries: 3
+          script: |
+            const pr = (await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER),
+            })).data;
+            if (pr.state !== 'open' ||
+                pr.base.ref !== context.payload.repository.default_branch ||
+                pr.base.sha !== process.env.EXPECTED_BASE_SHA ||
+                pr.head.sha !== process.env.EXPECTED_HEAD_SHA ||
+                !pr.head.repo ||
+                pr.head.repo.full_name !== process.env.EXPECTED_HEAD_REPOSITORY) {
+              throw new Error('PR changed before finalization');
+            }
+            const [baseCommit, headCommit] = await Promise.all([
+              github.rest.git.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: pr.base.sha,
+              }),
+              github.rest.git.getCommit({
+                owner: pr.head.repo.owner.login,
+                repo: pr.head.repo.name,
+                commit_sha: pr.head.sha,
+              }),
+            ]);
+            if (baseCommit.data.tree.sha !== process.env.EXPECTED_BASE_TREE_SHA ||
+                headCommit.data.tree.sha !== process.env.EXPECTED_HEAD_TREE_SHA) {
+              throw new Error('PR tree changed before finalization');
+            }
+
+      - name: Seal and offline-verify the complete Agent Change admission
+        shell: bash
+        env:
+          GIT_EXECUTABLE_SHA256: ${{ vars.EVOGUARD_GIT_EXECUTABLE_SHA256 }}
+          FINALIZER_KEY: ${{ secrets.EVOGUARD_AGENT_FINALIZER_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$FINALIZER_KEY"
+          untrusted="$RUNNER_TEMP/downloads/agent-change-untrusted-$GITHUB_RUN_ATTEMPT"
+          authorization="$RUNNER_TEMP/downloads/agent-change-authorization-$GITHUB_RUN_ATTEMPT"
+          umask 077
+          key="$RUNNER_TEMP/finalizer.private.pem"
+          printf '%s' "$FINALIZER_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          python -I "$RUNNER_TEMP/evo-guard.pyz" seal-agent-change-finalized \
+            "$untrusted/proposal.json" \
+            "$authorization/authorization.aca" \
+            "$untrusted/handoff.json" \
+            "$untrusted/verdict.json" \
+            --base-repo "$RUNNER_TEMP/base.git" \
+            --head-repo "$RUNNER_TEMP/head.git" \
+            --base-bare \
+            --head-bare \
+            --git-executable /usr/bin/git \
+            --git-executable-sha256 "$GIT_EXECUTABLE_SHA256" \
+            --finalizer-bindings "$RUNNER_TEMP/finalizer-bindings.json" \
+            --authorization-source "$authorization/authorization-source.json" \
+            --authorization-pub "$GITHUB_WORKSPACE/trust/security/agent-authorization-public.pem" \
+            --expected-source "$RUNNER_TEMP/expected-source.json" \
+            --expected-context "$RUNNER_TEMP/expected-context.json" \
+            --sign-key "$key" \
+            --trusted-pub "$GITHUB_WORKSPACE/trust/security/finalizer-public.pem" \
+            --out "$RUNNER_TEMP/agent-change.evb"
+          python -I "$RUNNER_TEMP/evo-guard.pyz" verify-agent-change-finalized \
+            "$RUNNER_TEMP/agent-change.evb" \
+            --agent-bindings "$RUNNER_TEMP/agent-bindings-finalizer.json" \
+            --authorization-source "$authorization/authorization-source.json" \
+            --authorization-pub "$GITHUB_WORKSPACE/trust/security/agent-authorization-public.pem" \
+            --expected-source "$RUNNER_TEMP/expected-source.json" \
+            --expected-context "$RUNNER_TEMP/expected-context.json" \
+            --trusted-pub "$GITHUB_WORKSPACE/trust/security/finalizer-public.pem"
+
+      - name: Assemble retained verification evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/final-evidence"
+          mkdir "$output"
+          install -m 0644 "$RUNNER_TEMP/agent-change.evb" "$output/agent-change.evb"
+          install -m 0644 "$RUNNER_TEMP/agent-bindings-finalizer.json" "$output/agent-bindings-finalizer.json"
+          install -m 0644 "$RUNNER_TEMP/finalizer-bindings.json" "$output/finalizer-bindings.json"
+          install -m 0644 "$RUNNER_TEMP/expected-source.json" "$output/expected-source.json"
+          install -m 0644 "$RUNNER_TEMP/expected-context.json" "$output/expected-context.json"
+          (
+            cd "$output"
+            sha256sum ./* | LC_ALL=C sort -k2 > MANIFEST.sha256
+          )
+
+      - name: Upload the signed admission and external verification inputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-change-finalized-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/final-evidence
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 30
+
+  reconcile:
+    if: ${{ always() && needs.metadata.result == 'success' }}
+    needs: [metadata, reverify, authorize, finalize]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      checks: write
+    steps:
+      - name: Complete only the attempt-bound pilot check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          CHECK_RUN_ID: ${{ needs.metadata.outputs.check_run_id }}
+          HEAD_SHA: ${{ needs.metadata.outputs.head_sha }}
+          FINALIZE_RESULT: ${{ needs.finalize.result }}
+        with:
+          script: |
+            const checkRunId = Number(process.env.CHECK_RUN_ID);
+            if (!Number.isSafeInteger(checkRunId) || checkRunId < 1) {
+              throw new Error('metadata did not produce a valid Check Run ID');
+            }
+            const check = (await github.rest.checks.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: checkRunId,
+            })).data;
+            const externalId = `evoguard-agent-change-pilot:${context.runId}:${process.env.GITHUB_RUN_ATTEMPT}`;
+            if (check.name !== 'EvoGuard Agent Change Pilot' ||
+                check.external_id !== externalId ||
+                check.head_sha !== process.env.HEAD_SHA ||
+                check.status !== 'in_progress') {
+              throw new Error('control data does not select this pending pilot check');
+            }
+            const ok = process.env.FINALIZE_RESULT === 'success';
+            await github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: checkRunId,
+              status: 'completed',
+              conclusion: ok ? 'success' : 'failure',
+              completed_at: new Date().toISOString(),
+              output: {
+                title: ok ? 'Agent Change admission: ALLOW' : 'Agent Change admission: DENY',
+                summary: ok
+                  ? 'The exact change was authorized, re-derived, finalized, and offline-verified.'
+                  : 'A boundary refused the change or the protected workflow did not complete.',
+              },
+            });
+            if (!ok) core.setFailed('Agent Change pilot did not produce a verified ALLOW');

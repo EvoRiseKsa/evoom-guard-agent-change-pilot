@@ -64,9 +64,23 @@ beyond the declared verifier pack.
 
 ## Status
 
-Bootstrap files are reviewed first. A result is claimed only after a real PR
-from `MANA-awam` has completed both protected Environment approvals and the
-signed `.evb` has been downloaded and verified independently.
+The bounded same-owner pilot is complete:
+
+- one permitted change was accepted after both protected Environment
+  approvals and independent offline verification of the retained `.evb`;
+- one change that also added an ignored `dist/hidden.txt` path was rejected
+  before authorization and produced no signed authorization or final bundle;
+  and
+- the exact permitted base/head pair was run again successfully. Its raw Git
+  binding bytes were identical, while the authorization and final bundle were
+  bound to the new workflow run.
+
+See [`PILOT_RESULTS.md`](PILOT_RESULTS.md) for the immutable commits, run URLs,
+digests, locally repeated checks, and limits of these results.
+
+These results establish a working bounded protocol in this same-owner sample.
+They do not establish an independent audit, general hostile-code isolation,
+single-use authorization, production readiness, or a required merge gate.
 
 ## License
 

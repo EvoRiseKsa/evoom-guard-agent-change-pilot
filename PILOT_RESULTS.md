@@ -2,11 +2,13 @@
 
 Date: 2026-07-23
 
-This record covers a public, same-owner consumer pilot of the unreleased
-Agent Change Admission candidate from
+This record covers a public, same-owner consumer pilot of the pre-release
+Agent Change Admission candidate captured from
 [`EvoRiseKsa/EvoOM-Guard-m#147`](https://github.com/EvoRiseKsa/EvoOM-Guard-m/pull/147).
-It reports observed results, not a release claim or an independent security
-assessment.
+The feature was later published in `v4.3.0`, but the evidence below remains
+bound to the earlier candidate commit and candidate artifact. It reports
+observed pilot results, not validation of the released bytes, a release claim,
+or an independent security assessment.
 
 ## Fixed inputs
 
@@ -23,8 +25,8 @@ assessment.
 - Permitted scope: exactly `calc/ops.py`, no deletions, one touched path,
   and at most 65,536 serialized candidate bytes.
 
-The candidate artifact still reports `evo-guard 4.2.0`; it is an unreleased
-PR artifact and is not a v4.3 release.
+The candidate artifact reports `evo-guard 4.2.0`; it was captured before the
+source version bump and was never a `v4.3.0` release asset.
 
 ## Round 1: permitted change
 
@@ -119,6 +121,10 @@ Within this bounded public sample, the workflow:
   isolation for arbitrary hostile code.
 - The verifier pack proves only its declared sample properties.
 - The workflow is manual and is not a production or required merge gate.
-- The candidate has not been released as v4.3.
+- The exact candidate artifact was never released as `v4.3.0`. The later
+  immutable release was built from core commit
+  `b8c61315a22741415c75e4e8828feb60c0ad5149` and has zipapp SHA-256
+  `cb4b98cd1835cf3be5f92d25ad406fe504b43cc210a92201fd4eae8c6e61a70f`;
+  this pilot did not execute or admit those released bytes.
 - The protocol does not provide authorization revocation or single-use replay
   prevention.

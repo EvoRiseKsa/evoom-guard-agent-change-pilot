@@ -1,10 +1,12 @@
 # EvoGuard Agent Change Admission Pilot
 
-This public repository is a controlled consumer pilot for the unreleased
-Agent Change Admission implementation in
-[`EvoRiseKsa/EvoOM-Guard-m`](https://github.com/EvoRiseKsa/EvoOM-Guard-m/pull/147).
-It is not the core product, a production deployment, an independent audit, or
-a required merge gate.
+This public repository is a controlled consumer pilot for the pre-release
+Agent Change Admission candidate captured from
+[`EvoRiseKsa/EvoOM-Guard-m#147`](https://github.com/EvoRiseKsa/EvoOM-Guard-m/pull/147).
+The feature was later published in `v4.3.0`, but this evidence remains bound to
+the earlier candidate commit and candidate artifact identified below. It is not
+evidence for the released `v4.3.0` bytes, the core product, a production
+deployment, an independent audit, or a required merge gate.
 
 The pilot tests one narrow decision: whether an exact PR change to
 `calc/ops.py` matches a separately signed authorization, independently
@@ -17,9 +19,10 @@ Finalizer `ALLOW`.
   `31a9258277d2650aba24a1f9f009c25db1c4bbf0`.
 - The externally retained experimental zipapp SHA-256 is
   `fcb9724de5e588e1664da5a108d077388bfaba1860d794d14142a2275f349842`.
-- Three independent builds produced identical bytes. The artifact still
-  reports `evo-guard 4.2.0` because the feature has not been released or had
-  its version bumped. It must not be described as a v4.3 release.
+- Three independent builds produced identical bytes. The artifact reports
+  `evo-guard 4.2.0` because it was captured before the source version was
+  bumped for publication. These candidate bytes were never a `v4.3.0` release
+  asset and must not be described as one.
 - The binary is a pilot-repository release asset, not a file in the candidate
   Git tree. Its hard-coded digest is the executable trust root; a missing or
   replaced asset fails closed.
@@ -81,6 +84,13 @@ digests, locally repeated checks, and limits of these results.
 These results establish a working bounded protocol in this same-owner sample.
 They do not establish an independent audit, general hostile-code isolation,
 single-use authorization, production readiness, or a required merge gate.
+
+`v4.3.0` was subsequently published from core commit
+`b8c61315a22741415c75e4e8828feb60c0ad5149`. That release has a different
+zipapp SHA-256,
+`cb4b98cd1835cf3be5f92d25ad406fe504b43cc210a92201fd4eae8c6e61a70f`.
+Publication does not retroactively convert this pilot's candidate artifact or
+workflow runs into validation of the released artifact.
 
 ## License
 
